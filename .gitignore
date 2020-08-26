@@ -1,4 +1,4 @@
 .vscode/
-hub.exe
+hub.exe*
 secret-dir/
 webapps/
