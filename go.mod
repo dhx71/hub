@@ -1,4 +1,4 @@
-module github.com/hub
+module github.com/dhx71/hub
 
 go 1.14
 

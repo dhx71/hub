@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hub/hub"
+	"github.com/dhx71/hub/hublib"
 	"github.com/tebeka/atexit"
 	"golang.org/x/crypto/acme/autocert"
 )
@@ -110,7 +110,7 @@ func setupCloseHandler() {
 func startServer() {
 	_ = os.Mkdir("./webapps", os.ModeDir)
 	http.Handle("/", http.FileServer(http.Dir("./webapps")))
-	http.HandleFunc("/hub", hub.NewHubHandlerFunc(*token))
+	http.HandleFunc("/hub", hublib.NewHubHandlerFunc(*token))
 	if !*dev {
 		_ = os.Mkdir("./secret-dir", os.ModeDir)
 		m := &autocert.Manager{

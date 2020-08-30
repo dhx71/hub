@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
+"github.com/dhx71/hub/hublib"
 	"github.com/google/uuid"
-	"github.com/hub/hub"
 	"github.com/tebeka/atexit"
 )
 
@@ -108,8 +108,8 @@ func getHost(hostPort string) string {
 
 func startClient() {
 	log.Println("client| starting client and connecting to", *client)
-	hubClient := hub.NewClient(*client, *token, *bypassProxy)
-	var controlRoom *hub.Room
+	hubClient := hublib.NewClient(*client, *token, *bypassProxy)
+	var controlRoom *hublib.Room
 	enterControlRoom := func() {
 		var err error
 		controlRoom, err = hubClient.Join(*room, *password)

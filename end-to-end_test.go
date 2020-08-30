@@ -6,8 +6,7 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/hub/hub"
+	"github.com/dhx71/hub/hublib"
 )
 
 func setArgument(_client, _agent, _tunnel, _listen string, _dev, _bypassProxy bool) {
@@ -25,7 +24,7 @@ func Test_HubClientsServer(t *testing.T) {
 	go startServer()
 	time.Sleep(time.Millisecond * 500)
 
-	hubClient := hub.NewClient(*agent, *token, true)
+	hubClient := hublib.NewClient(*agent, *token, true)
 
 	s1, err := hubClient.Join("my room", "my password")
 	if err != nil {

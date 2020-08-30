@@ -5,8 +5,8 @@ import (
 	"net"
 	"os"
 
-	"github.com/google/uuid"
-	"github.com/hub/hub"
+	"github.com/dhx71/hub/hublib"
+"github.com/google/uuid"
 	"github.com/tebeka/atexit"
 )
 
@@ -20,7 +20,7 @@ type agentResponse struct {
 }
 
 func startAgent() {
-	hubClient := hub.NewClient(*agent, *token, *bypassProxy)
+	hubClient := hublib.NewClient(*agent, *token, *bypassProxy)
 	controlRoom, err := hubClient.Join(*room, *password)
 	if err != nil {
 		log.Fatal("agent | failed to join room. ", *room)
@@ -47,7 +47,7 @@ func startAgent() {
 
 }
 
-func createTunnel(hubClient *hub.Client, controlRoom *hub.Room, destination, refid string) {
+func createTunnel(hubClient *hublib.Client, controlRoom *hublib.Room, destination, refid string) {
 	tunnelRoom := uuid.New().String()
 	tunnelPassword := uuid.New().String()
 

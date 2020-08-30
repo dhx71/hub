@@ -4,3 +4,5 @@ secret-dir/
 webapps/
 paco.cmd
 paco.json
+linux-arm/
+hub
