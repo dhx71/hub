@@ -9,7 +9,7 @@ set GOOS=linux
 set GOARCH=amd64
 go build
 mkdir linux-amd64
-copy .\hub linux-arm\
+copy .\hub linux-amd64\
 
 set GOOS=windows
 set GOARCH=amd64
