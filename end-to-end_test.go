@@ -107,11 +107,17 @@ func Test_Tunnel_EndToEnd(t *testing.T) {
 		buf := make([]byte, 1500)
 		n, err := conn.Read(buf)
 		if n != 14 || string(buf[:n]) != "THIS IS A TEST" || err != nil {
+			log.Printf("TEST FAILED listener didn't received expected message. n:%d, err:%vn\n", n, err)
 			t.Errorf("listener didn't received expected message. n:%d, err:%v", n, err)
+		} else {
+			log.Printf("listener did received expected message of %d bytes\n", n)
 		}
 		n, err = conn.Write([]byte("THIS IS A REPLY"))
 		if err != nil || n != 15 {
+			log.Printf("TEST FAILED listener could not send message. n:%d, err:%v\n", n, err)
 			t.Errorf("listener could not send message. n:%d, err:%v", n, err)
+		} else {
+			log.Printf("listener did send expected message of %d bytes\n", n)
 		}
 		//time.Sleep(time.Second)
 	}()
@@ -131,31 +137,43 @@ func Test_Tunnel_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to dial tunnel. %s", err)
 	}
-	defer conn.Close()
 	n, err := conn.Write([]byte("THIS IS A TEST"))
 	if n != 14 || err != nil {
-		t.Errorf("failed to send to tunnel n:%d err:%v", n, err)
+		log.Printf("TEST FAILED tunnel client failed to send to tunnel n:%d err:%v\n", n, err)
+		t.Errorf("tunnel client failed to send to tunnel n:%d err:%v", n, err)
+	} else {
+		log.Printf("tunnel client did send message of %d bytes\n", n)
 	}
 	buf := make([]byte, 1500)
 	n, err = conn.Read(buf)
 	if n != 15 || string(buf[:n]) != "THIS IS A REPLY" || err != nil {
-		t.Errorf("tunnel didn't received expected message. n:%d, err:%v", n, err)
+		log.Printf("TEST FAILED tunnel client didn't received expected message. n:%d, err:%v\n", n, err)
+		t.Errorf("tunnel client didn't received expected message. n:%d, err:%v", n, err)
+	} else {
+		log.Printf("tunnel client did received expected message of %d bytes\n", n)
 	}
-	//time.Sleep(time.Second)
+	time.Sleep(time.Second)
+	log.Printf("tunnel client closed")
+	conn.Close()
 }
 
 func Test_Multithreads_Tunnel_EndToEnd(t *testing.T) {
 	handleConn := func(conn net.Conn) {
 		buf := make([]byte, 1500)
+		log.Printf("handleConn| reading... %s", conn.RemoteAddr().String())
 		n, err := conn.Read(buf)
+		log.Printf("handleConn| read err: %s. %s\n", err, conn.RemoteAddr().String())
 		if n != 14 || string(buf[:n]) != "THIS IS A TEST" || err != nil {
 			t.Errorf("listener didn't received expected message. n:%d, err:%v", n, err)
 		}
+		log.Printf("handleConn| writing... %s", conn.RemoteAddr().String())
 		n, err = conn.Write([]byte("THIS IS A REPLY"))
+		log.Printf("handleConn| wrote err:%s. %s", err, conn.RemoteAddr().String())
 		if err != nil || n != 15 {
 			t.Errorf("listener could not send message. n:%d, err:%v", n, err)
 		}
 		time.Sleep(time.Second)
+		log.Printf("handleConn| closing... %s", conn.RemoteAddr().String())
 		conn.Close()
 	}
 	go func() {
@@ -186,23 +204,23 @@ func Test_Multithreads_Tunnel_EndToEnd(t *testing.T) {
 		if err != nil {
 			t.Errorf("tunnel client failed to dial. %s", err)
 		}
-		log.Println("Test_Multithreads_Tunnel_EndToEnd| dialed to", conn.RemoteAddr().String())
+		log.Println("simulateClient| dialed to", conn.RemoteAddr().String())
 		n, err := conn.Write([]byte("THIS IS A TEST"))
 		if n != 14 || err != nil {
 			t.Errorf("tunnel client failed to send data n:%d err:%v", n, err)
 		}
-		log.Println("Test_Multithreads_Tunnel_EndToEnd| sent", n, "bytes to", conn.RemoteAddr().String())
+		log.Println("simulateClient| sent", n, "bytes to", conn.RemoteAddr().String())
 		buf := make([]byte, 1500)
 		n, err = conn.Read(buf)
 		if n != 15 || string(buf[:n]) != "THIS IS A REPLY" || err != nil {
 			t.Errorf("tunnel client didn't received expected message (routine #:%d). n:%d, err:%v", instanceNb, n, err)
 		}
-		log.Println("Test_Multithreads_Tunnel_EndToEnd| read", n, "bytes from", conn.RemoteAddr().String())
-		log.Println("Test_Multithreads_Tunnel_EndToEnd| closing conn with", conn.RemoteAddr().String())
+		log.Println("simulateClient| read", n, "bytes from", conn.RemoteAddr().String())
+		log.Println("simulateClient| closing conn with", conn.RemoteAddr().String())
 		conn.Close()
 		wg.Done()
 	}
-	for i := 1; i <= 1; i++ {
+	for i := 1; i <= 200; i++ {
 		wg.Add(1)
 		go simulateClient(i)
 	}

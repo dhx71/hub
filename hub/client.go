@@ -88,6 +88,7 @@ func (roomInfo *Room) ReadJSON(v interface{}) error {
 
 func (roomInfo *Room) Relay(netConn net.Conn) error {
 	doClose := func() {
+		log.Println("hubclt| closing room and net conn")
 		roomInfo.Close()
 		netConn.Close()
 	}
@@ -113,7 +114,7 @@ func (roomInfo *Room) Relay(netConn net.Conn) error {
 	for {
 		n, err := netConn.Read(buf)
 		if err != nil {
-			log.Printf("hubclt| failed to read data from tcp connection. Closing tunnel (room: %s). Err: %s\n", roomInfo.room, err)
+			log.Printf("hubclt| failed to read data from tcp connection %s. Closing tunnel (room: %s). Err: %s\n", netConn.RemoteAddr().String(), roomInfo.room, err)
 			doClose()
 			return err
 		}

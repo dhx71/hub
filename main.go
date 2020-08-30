@@ -6,9 +6,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/hub/hub"
+	"github.com/tebeka/atexit"
 	"golang.org/x/crypto/acme/autocert"
 )
 
@@ -22,6 +25,7 @@ var (
 	client           = flag.String("client", "", "start hub as a client and connect to spefified hub. Ex.: wss://10.0.0.3/hub/")
 	room             = flag.String("room", "control room", "room used by client and agent to allow client to send command to agent")
 	tunnel           = flag.String("tunnel", "", "creates a tunnel from this computer (-listen) to agent. This parameter contains host:port to tunnel to. Must be used with -client and -listen arguments")
+	tunnelsFile      = flag.String("tunnels", "", "creates many tunnels as specified in JSON file. See above for an example.")
 	rdp              = flag.String("rdp", "", "creates a tunnel from this computer to agent on RDP port. This parameter contains host to tunnel to. Must be used with -client argument. It will autonatically start mstsc.exe")
 	bypassProxy      = flag.Bool("bypass-proxy", false, "bypass system proxy")
 	exitOnDisconnect = flag.Bool("exit-on-disconnect", false, "Stops the client when the tcp connection on the tunnel disconnects")
@@ -49,17 +53,36 @@ Run a client to tunnel tcp/ip RDP traffic over. Will start mstsc.exe.
 
     hub -client wss://www.mydomain.io/hub -token "secret" -room "room" -password "password" -rdp 192.168.2.4
 
+Run a client to tunnel multiple tcp/ip connections traffic over from many ports.
+
+	hub -client wss://www.mydomain.io/hub -token "secret" -room "room" -password "password" -tunnels tunnels.json
+	
+JSON file looks like:
+{
+	"ModifyHostsFile":true, // need admin rights
+	"Tunnels":[{
+		"Listen":"127.0.0.2:3389",
+		"Destination": "server1.lab.mycompany.net:3389"
+	}, {
+		"Listen":"127.0.0.2:8080",
+		"Destination": "server1.lab.mycompany.net:8080"
+	}, {
+		"Listen":"127.0.0.3:443",
+		"Destination": "server2.lab.mycompany.net:443"
+	}]
+}
 `)
 
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+	setupCloseHandler()
 
 	if *exitAfter != 0 {
 		go func() {
 			<-time.After(*exitAfter)
 			log.Println("running for", *exitAfter, "time to exit!")
-			os.Exit(1)
+			atexit.Exit(1)
 		}()
 	}
 
@@ -72,6 +95,16 @@ Run a client to tunnel tcp/ip RDP traffic over. Will start mstsc.exe.
 		return
 	}
 	startServer()
+}
+
+func setupCloseHandler() {
+	c := make(chan os.Signal)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		fmt.Println("Ctrl+C pressed in Terminal")
+		atexit.Exit(0)
+	}()
 }
 
 func startServer() {

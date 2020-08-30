@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hub/hub"
+	"github.com/tebeka/atexit"
 )
 
 type agentRequest struct {
@@ -70,7 +71,7 @@ func createTunnel(hubClient *hub.Client, controlRoom *hub.Room, destination, ref
 			tcpConn.Close()
 		}
 		if *exitOnDisconnect {
-			os.Exit(0)
+			atexit.Exit(0)
 		}
 	}
 	log.Println("agent |", tunnelRoom, "opening connection to", destination)
