@@ -9,22 +9,38 @@ import (
 	"github.com/hub/hub"
 )
 
+type agentRequest struct {
+	Type, Destination, Refid string
+}
+
+type agentResponse struct {
+	Type, Room, Password, Refid, Cause string
+	Success                            bool
+}
+
 func startAgent() {
 	hubClient := hub.NewClient(*agent, *token, *bypassProxy)
 	controlRoom, err := hubClient.Join(*room, *password)
 	if err != nil {
-		log.Fatal("failed to join room. ", *room)
+		log.Fatal("agent | failed to join room. ", *room)
 	}
 	defer controlRoom.Close()
 	for {
-		msg, err := controlRoom.ReadJSON()
+		var req agentRequest
+		err := controlRoom.ReadJSON(&req)
 		if err != nil {
-			log.Println("failed to read JSON. ", err)
+			log.Println("agent | failed to read JSON from room", *room, err)
+			if err.Error() == "websocket: close 1006 (abnormal closure): unexpected EOF" {
+				controlRoom, err = hubClient.Join(*room, *password)
+				if err != nil {
+					log.Fatal("agent | failed to join room. ", *room)
+				}
+			}
 			continue
 		}
-		log.Printf("got message %v\n", msg)
-		if msg["type"] == "createTunnel" {
-			go createTunnel(hubClient, controlRoom, msg["destination"].(string), msg["refid"].(string))
+		log.Printf("agent | got message on room %s: %v\n", *room, req)
+		if req.Type == "createTunnel" {
+			createTunnel(hubClient, controlRoom, req.Destination, req.Refid)
 		}
 	}
 
@@ -35,17 +51,16 @@ func createTunnel(hubClient *hub.Client, controlRoom *hub.Room, destination, ref
 	tunnelPassword := uuid.New().String()
 
 	returnFailure := func(cause string) {
-		msg := make(map[string]interface{})
-		msg["type"] = "tunnelCreationFailed"
-		msg["destination"] = destination
-		msg["refid"] = refid
-		msg["cause"] = cause
-		controlRoom.WriteJSON(msg)
+		controlRoom.WriteJSON(agentResponse{
+			Type:    "tunnelCreationFailed",
+			Refid:   refid,
+			Cause:   cause,
+			Success: false})
 	}
 	var tcpConn net.Conn = nil
 	roomConn, err := hubClient.Join(tunnelRoom, tunnelPassword)
 	if err != nil {
-		log.Println("failed to create room for tunnel")
+		log.Println(tunnelRoom, "agent | failed to create room for tunnel")
 		returnFailure("failed to create room for tunnel")
 		return
 	}
@@ -58,10 +73,10 @@ func createTunnel(hubClient *hub.Client, controlRoom *hub.Room, destination, ref
 			os.Exit(0)
 		}
 	}
-	log.Println("opening connection to", destination)
+	log.Println("agent |", tunnelRoom, "opening connection to", destination)
 	tcpAddr, err := net.ResolveTCPAddr("tcp", destination)
 	if err != nil {
-		log.Println("failed to resolve destination address", destination, err.Error())
+		log.Println("agent | failed to resolve destination address", destination, err.Error())
 		returnFailure("failed to resolve destination address")
 		doClose()
 		return
@@ -69,21 +84,26 @@ func createTunnel(hubClient *hub.Client, controlRoom *hub.Room, destination, ref
 
 	tcpConn, err = net.DialTCP("tcp", nil, tcpAddr)
 	if err != nil {
-		log.Println("Destination dial failed", tcpAddr, err.Error())
+		log.Println("agent |", tunnelRoom, "Destination dial failed", tcpAddr, err.Error())
 		returnFailure("failed to dial destination")
 		doClose()
 		return
 	}
-	msg := make(map[string]interface{})
-	msg["type"] = "tunnelCreated"
-	msg["destination"] = destination
-	msg["refid"] = refid
-	msg["room"] = tunnelRoom
-	msg["password"] = tunnelPassword
-	controlRoom.WriteJSON(msg)
-
-	roomConn.Relay(tcpConn)
-	if *exitOnDisconnect {
-		os.Exit(0)
+	err = controlRoom.WriteJSON(agentResponse{
+		Type:     "tunnelCreated",
+		Refid:    refid,
+		Room:     tunnelRoom,
+		Password: tunnelPassword})
+	if err != nil {
+		log.Println("agent |", tunnelRoom, "Failed to send tunnelCreated message back to client")
+		doClose()
+		return
 	}
+
+	go func() {
+		roomConn.Relay(tcpConn)
+		if *exitOnDisconnect {
+			os.Exit(0)
+		}
+	}()
 }

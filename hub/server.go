@@ -25,34 +25,32 @@ func NewHubHandlerFunc(token string) func(w http.ResponseWriter, r *http.Request
 	hubService := func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("x-token") != token {
 			w.WriteHeader(401)
-			log.Println("invalid token provided")
+			log.Println("hub   | invalid token provided")
 			return
 		}
 		c, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			w.WriteHeader(400)
-			log.Println("upgrade failed:", err)
+			log.Println("hub   | upgrade failed:", err)
 			return
 		}
 		defer c.Close()
-		cmd := make(map[string]interface{})
-		err = c.ReadJSON(&cmd)
+		var req hubRequest
+		err = c.ReadJSON(&req)
 		if err != nil {
-			w.WriteHeader(400)
-			log.Println("failed to parse command:", err)
+			log.Println("hub   | failed to parse request:", err)
+			c.WriteJSON(hubResponse{"error", false, "failed to parse request"})
 			return
 		}
-		operation := cmd["type"]
-		room := cmd["room"]
-		roomPassword := cmd["password"]
-		if operation == "join" {
-			err = handleJoin(room.(string), roomPassword.(string), c)
+		if req.Type == "join" {
+			err = handleJoin(req.Room, req.Password, c)
 			if err != nil {
-				w.WriteHeader(401)
+				log.Println("hub   | failed to enter room", err)
+				return
 			}
 		} else {
-			w.WriteHeader(404)
-			log.Println("unknown operation", operation)
+			log.Println("hub   | unknown request type", req.Type)
+			c.WriteJSON(hubResponse{"error", false, "unknown request type"})
 			return
 		}
 
@@ -65,37 +63,39 @@ func handleJoin(roomName string, password string, c *websocket.Conn) error {
 	room, found := rooms[roomName]
 	if !found {
 		// first to join open the room
-		log.Println("creating room", roomName)
+		log.Println("hub   |", c.RemoteAddr().String(), "create room", roomName)
 		room = &roomInfo{roomName, password, make([]*websocket.Conn, 0)}
 		rooms[roomName] = room
 	} else {
-		log.Println("trying to join room", roomName, len(room.participants), "participants")
+		log.Println("hub   |", c.RemoteAddr().String(), "trying to enter room", roomName, len(room.participants), "participants")
 	}
 
 	if password != room.password {
-		log.Println("invalid password provided")
+		lock.Unlock()
+		log.Println("hub   |", c.RemoteAddr().String(), "invalid password provided")
+		c.WriteJSON(hubResponse{"error", false, "invalid password"})
 		return fmt.Errorf("invalid room password")
 	}
 	room.participants = append(room.participants, c)
 	lock.Unlock()
-	log.Println("joined room", roomName, len(room.participants), "participants")
+	log.Println("hub   |", c.RemoteAddr().String(), "entered room", roomName, len(room.participants), "participants")
+	c.WriteJSON(hubResponse{"joined", true, ""})
 
 	for {
 		mt, message, err := c.ReadMessage()
-		if err == nil {
-			log.Printf("recv %d bytes", len(message))
-			err = room.broadcast(c, mt, message)
-		}
 		if err != nil {
+			log.Println("hub   |", c.RemoteAddr().String(), "read error", err, "Removing participant from room")
 			lock.Lock()
-			defer lock.Unlock()
-			log.Println("read error", err, "closing room...")
-			for _, participant := range room.participants {
-				participant.Close()
+			removeParticipant(room.participants, c)
+			if len(room.participants) == 0 {
+				log.Println("No more participant in room. Closing room", roomName)
+				delete(rooms, roomName)
 			}
-			delete(rooms, roomName)
+			lock.Unlock()
 			break
 		}
+		log.Printf("hub   | recv %d bytes", len(message))
+		err = room.broadcast(c, mt, message)
 	}
 	return nil
 }
@@ -107,7 +107,7 @@ func (room *roomInfo) broadcast(source *websocket.Conn, mt int, msg []byte) erro
 
 	for _, participant := range room.participants {
 		if participant != source {
-			log.Printf("sending %d bytes\n", len(msg))
+			log.Printf("hub   | sending %d bytes to participant %s in room %s\n", len(msg), participant.RemoteAddr().String(), room.name)
 			err := participant.WriteMessage(mt, msg)
 			if err != nil {
 				toDelete = append(toDelete, participant)
@@ -116,7 +116,12 @@ func (room *roomInfo) broadcast(source *websocket.Conn, mt int, msg []byte) erro
 	}
 	for _, disconnected := range toDelete {
 		room.participants = removeParticipant(room.participants, disconnected)
+		if len(room.participants) == 0 {
+			log.Println("No more participant in room. Closing room", room.name)
+			delete(rooms, room.name)
+		}
 	}
+
 	return nil
 }
 

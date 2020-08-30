@@ -14,13 +14,20 @@ import (
 )
 
 func startClient() {
-	log.Println("starting client and connecting to", *client)
+	log.Println("client| starting client and connecting to", *client)
 	hubClient := hub.NewClient(*client, *token, *bypassProxy)
-	controlRoom, err := hubClient.Join(*room, *password)
-	if err != nil {
-		log.Fatal("failed to join room ", *room)
+	var controlRoom *hub.Room
+	enterControlRoom := func() {
+		var err error
+		controlRoom, err = hubClient.Join(*room, *password)
+		if err != nil {
+			log.Fatal("client| failed to join room ", *room, err)
+		}
 	}
-	defer controlRoom.Close()
+	enterControlRoom()
+	defer func() {
+		controlRoom.Close()
+	}()
 	destination := ""
 	if len(*tunnel) > 0 {
 		destination = *tunnel
@@ -30,7 +37,7 @@ func startClient() {
 			destination = destination + ":3389"
 		}
 	} else {
-		log.Fatal("client must provide either -tunnel or -rdp arguments")
+		log.Fatal("client| client must provide either -tunnel or -rdp arguments")
 	}
 
 	rand.Seed(time.Now().UnixNano())
@@ -39,54 +46,64 @@ func startClient() {
 		listenIf = *listen
 	}
 
-	log.Println("listening for tcp/ip connection on", listenIf)
+	log.Println("client| listening for tcp/ip connection on", listenIf)
 	listener, err := net.Listen("tcp", listenIf)
 	if err != nil {
-		log.Fatal("failed to listen on", listenIf, err)
+		log.Fatal("client| failed to listen on", listenIf, err)
 	}
-	for {
-		tcpConn, err := listener.Accept()
+
+	handleConn := func(tcpConn net.Conn) {
+		defer tcpConn.Close()
+		log.Println("client| got connection from", tcpConn.RemoteAddr())
+		refid := uuid.New().String()
+		err := controlRoom.WriteJSON(&agentRequest{
+			Type:        "createTunnel",
+			Destination: destination,
+			Refid:       refid})
 		if err != nil {
-			log.Println("failed to accept connection.", err)
-			continue
+			log.Println("client|", tcpConn.RemoteAddr(), "Failed to send createTunnel message.", err)
+			if err.Error() == "websocket: close sent" {
+				enterControlRoom()
+			}
+			return
 		}
-		go func(tcpConn net.Conn) {
-			defer tcpConn.Close()
-			msg := make(map[string]interface{})
-			msg["type"] = "createTunnel"
-			msg["destination"] = destination
-			refid := uuid.New().String()
-			msg["refid"] = refid
-			err := controlRoom.WriteJSON(msg)
-			if err != nil {
-				log.Println("Failed to send createRoom message")
+		var resp agentResponse
+		err = controlRoom.ReadJSON(&resp)
+		if err != nil {
+			log.Println("client|", tcpConn.RemoteAddr(), "failed to read JSON. ", err)
+			if err.Error() == "websocket: close 1006 (abnormal closure): unexpected EOF" {
+				enterControlRoom()
+			}
+			return
+		}
+		if resp.Refid == refid {
+			if resp.Type == "tunnelCreationFailed" {
+				log.Println("client|", tcpConn.RemoteAddr(), "Tunnel creation failed. cause: %s", resp.Cause)
 				return
 			}
-			msg, err = controlRoom.ReadJSON()
+			log.Println("client|", tcpConn.RemoteAddr(), "Tunnel room created")
+			tunnel, err := hubClient.Join(resp.Room, resp.Password)
 			if err != nil {
-				log.Println("failed to read JSON. ", err)
+				log.Println("client|", tcpConn.RemoteAddr(), "Failed to join tunnel room")
 				return
 			}
-			if msg["refid"] == refid {
-				if msg["type"] == "tunnelCreationFailed" {
-					log.Println("Tunnel creation failed. cause: %s", msg["cause"].(string))
-					return
-				}
-				log.Println("Tunnel room created")
-				tunnelRoom := msg["room"].(string)
-				tunnelPassword := msg["password"].(string)
-				tunnel, err := hubClient.Join(tunnelRoom, tunnelPassword)
-				if err != nil {
-					log.Println("Failed to join tunnel room")
-					return
-				}
-				log.Println("Joined room", tunnelRoom, "Now relaying data with", listenIf)
-				defer tunnel.Close()
+			log.Println("client|", tcpConn.RemoteAddr(), "Joined room", resp.Room, "Now relaying data with", listenIf)
+			go func() {
 				tunnel.Relay(tcpConn)
 				if *exitOnDisconnect {
 					os.Exit(0)
 				}
-			}
-		}(tcpConn)
+			}()
+		}
+
+	}
+
+	for {
+		tcpConn, err := listener.Accept()
+		if err != nil {
+			log.Println("client| failed to accept connection.", err)
+			continue
+		}
+		handleConn(tcpConn)
 	}
 }

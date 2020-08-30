@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -18,6 +19,16 @@ type Room struct {
 	conn           *websocket.Conn
 }
 
+type hubRequest struct {
+	Type, Room, Password string
+}
+
+type hubResponse struct {
+	Type    string
+	Success bool
+	Cause   string
+}
+
 func NewClient(hubUrl, token string, bypassproxy bool) *Client {
 	if !bypassproxy {
 		websocket.DefaultDialer = &websocket.Dialer{
@@ -28,80 +39,95 @@ func NewClient(hubUrl, token string, bypassproxy bool) *Client {
 
 func (client *Client) Join(room, password string) (roomInfo *Room, err error) {
 	roomInfo = &Room{room, password, nil}
-	log.Println("joining room", room)
+	log.Println("hubclt| entering room", room)
 	hdrs := make(http.Header)
 	hdrs["x-token"] = []string{client.token}
 	roomInfo.conn, _, err = websocket.DefaultDialer.Dial(client.hubUrl, hdrs)
 	if err != nil {
 		return nil, err
 	}
-	log.Println("connected to hub")
-	msg := make(map[string]interface{})
-	msg["type"] = "join"
-	msg["room"] = room
-	msg["password"] = password
-	err = roomInfo.conn.WriteJSON(msg)
+	log.Println("hubclt| connected to hub")
+	err = roomInfo.WriteJSON(hubRequest{"join", room, password})
 	if err != nil {
-		log.Fatal("failed to send join msg:", err)
+		roomInfo.Close()
+		return nil, fmt.Errorf("failed to send join msg: %s", err)
+	}
+	var resp hubResponse
+	err = roomInfo.ReadJSON(&resp)
+	if err != nil {
+		roomInfo.Close()
+		return nil, fmt.Errorf("failed to read join confirmation msg: %s", err)
+	}
+	if !resp.Success {
+		roomInfo.Close()
+		return nil, fmt.Errorf("could not enter room. cause: %s", resp.Cause)
 	}
 	return roomInfo, nil
 }
 
 func (roomInfo *Room) Close() error {
+
+	log.Println("hubclt| closing websocket for room", roomInfo.room)
 	return roomInfo.conn.Close()
 }
 
 func (roomInfo *Room) WriteJSON(v interface{}) error {
+	log.Printf("hubclt| Sending JSON %v to room: %s\n", v, roomInfo.room)
 	return roomInfo.conn.WriteJSON(v)
 }
 
-func (roomInfo *Room) ReadJSON() (map[string]interface{}, error) {
-	result := make(map[string]interface{})
-	err := roomInfo.conn.ReadJSON(&result)
+func (roomInfo *Room) ReadJSON(v interface{}) error {
+	err := roomInfo.conn.ReadJSON(v)
 	if err != nil {
-		return nil, err
+		log.Printf("hubclt| Error while reading from room %s. Err:%s", roomInfo.room, err)
+		return err
 	}
-	return result, nil
+	log.Printf("hubclt| Read JSON %v from Room: %s\n", v, roomInfo.room)
+	return nil
 }
 
 func (roomInfo *Room) Relay(netConn net.Conn) error {
 	doClose := func() {
-		roomInfo.conn.Close()
+		roomInfo.Close()
 		netConn.Close()
 	}
 	go func() {
 		for {
 			_, p, err := roomInfo.conn.ReadMessage()
 			if err != nil {
-				log.Println("failed to read data from room. Closing tunnel")
+				log.Printf("hubclt| failed to read data from room. Closing tunnel (room: %s). Err: %s\n", roomInfo.room, err)
 				doClose()
 				return
 			}
-			log.Printf("read %d bytes from room\n", len(p))
+			log.Printf("hubclt| read %d bytes from room\n", len(p))
 			n, err := netConn.Write(p)
 			if err != nil {
-				log.Println("failed to write data to tcp connection. Closing tunnel")
+				log.Printf("hubclt| failed to write data to tcp connection. Closing tunnel (room: %s). Err: %s\n", roomInfo.room, err)
 				doClose()
 				return
 			}
-			log.Printf("wrote %d bytes to tcp connection\n", n)
+			log.Printf("hubclt| wrote %d bytes to tcp connection\n", n)
 		}
 	}()
+	buf := make([]byte, 1500)
 	for {
-		buf := make([]byte, 1500)
 		n, err := netConn.Read(buf)
 		if err != nil {
-			log.Println("failed to read data from tcp connection. Closing tunnel")
+			log.Printf("hubclt| failed to read data from tcp connection. Closing tunnel (room: %s). Err: %s\n", roomInfo.room, err)
 			doClose()
 			return err
 		}
-		log.Printf("read %d bytes from tcp connection\n", n)
-		err = roomInfo.conn.WriteMessage(websocket.BinaryMessage, buf)
+		log.Printf("hubclt| read %d bytes from tcp connection\n", n)
+		err = roomInfo.conn.WriteMessage(websocket.BinaryMessage, buf[:n])
 		if err != nil {
-			log.Println("failed to write data to tunnel room. Closing tunnel")
+			log.Printf("hubclt| failed to write data to tunnel room %s. Closing tunnel. Err: %s\n", roomInfo.room, err)
 			doClose()
 			return err
 		}
-		log.Printf("wrote %d bytes to room\n", n)
+		log.Printf("hubctl| wrote %d bytes to room %s\n", n, roomInfo.room)
 	}
+}
+
+func (roomInfo *Room) RemoteAddr() string {
+	return roomInfo.conn.RemoteAddr().String()
 }

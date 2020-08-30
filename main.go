@@ -3,8 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/hub/hub"
 	"golang.org/x/crypto/acme/autocert"
@@ -53,6 +55,14 @@ Run a client to tunnel tcp/ip RDP traffic over. Will start mstsc.exe.
 	}
 	flag.Parse()
 
+	if *exitAfter != 0 {
+		go func() {
+			<-time.After(*exitAfter)
+			log.Println("running for", *exitAfter, "time to exit!")
+			os.Exit(1)
+		}()
+	}
+
 	if len(*agent) > 0 {
 		startAgent()
 		return
@@ -61,6 +71,10 @@ Run a client to tunnel tcp/ip RDP traffic over. Will start mstsc.exe.
 		startClient()
 		return
 	}
+	startServer()
+}
+
+func startServer() {
 	_ = os.Mkdir("./webapps", os.ModeDir)
 	http.Handle("/", http.FileServer(http.Dir("./webapps")))
 	http.HandleFunc("/hub", hub.NewHubHandlerFunc(*token))
