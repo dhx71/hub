@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 
 	"github.com/gorilla/websocket"
 	"github.com/mattn/go-ieproxy"
@@ -29,10 +30,18 @@ type hubResponse struct {
 	Cause   string
 }
 
-func NewClient(hubUrl, token string, bypassproxy bool) *Client {
-	if !bypassproxy {
+func NewClient(hubUrl, token string, bypassproxy bool, proxy string) *Client {
+	if !bypassproxy && len(proxy) == 0 {
 		websocket.DefaultDialer = &websocket.Dialer{
 			Proxy: ieproxy.GetProxyFunc()}
+	} else if len(proxy) > 0 {
+		u, err := url.Parse(proxy)
+		if err != nil {
+			log.Printf("failed to parse proxy URL. %s\n", err)
+		} else {
+			websocket.DefaultDialer = &websocket.Dialer{
+				Proxy: http.ProxyURL(u)}
+		}
 	}
 	return &Client{hubUrl, token}
 }

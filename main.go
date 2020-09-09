@@ -28,6 +28,7 @@ var (
 	tunnelsFile      = flag.String("tunnels", "", "creates many tunnels as specified in JSON file. See above for an example.")
 	rdp              = flag.String("rdp", "", "creates a tunnel from this computer to agent on RDP port. This parameter contains host to tunnel to. Must be used with -client argument. It will autonatically start mstsc.exe")
 	bypassProxy      = flag.Bool("bypass-proxy", false, "bypass system proxy")
+	proxy = flag.String("proxy", "", "specifies proxy URL")
 	exitOnDisconnect = flag.Bool("exit-on-disconnect", false, "Stops the client when the tcp connection on the tunnel disconnects")
 	exitAfter        = flag.Duration("exit-after", 0, "tells the application to terminate automatically after the given duration (ex.: 1h30m)")
 )

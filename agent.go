@@ -20,7 +20,7 @@ type agentResponse struct {
 }
 
 func startAgent() {
-	hubClient := hublib.NewClient(*agent, *token, *bypassProxy)
+	hubClient := hublib.NewClient(*agent, *token, *bypassProxy, *proxy)
 	controlRoom, err := hubClient.Join(*room, *password)
 	if err != nil {
 		log.Fatal("agent | failed to join room. ", *room)

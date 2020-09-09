@@ -108,7 +108,7 @@ func getHost(hostPort string) string {
 
 func startClient() {
 	log.Println("client| starting client and connecting to", *client)
-	hubClient := hublib.NewClient(*client, *token, *bypassProxy)
+	hubClient := hublib.NewClient(*client, *token, *bypassProxy, *proxy)
 	var controlRoom *hublib.Room
 	enterControlRoom := func() {
 		var err error
